@@ -24,10 +24,11 @@ const App = () => {
   const [inputValue, setInputValue] = useState('');
   const [postcodeValue, setPostcodeValue] = useState(''); // New state for postcode
   const [submittedItem, setSubmittedItem] = useState('');
-  const [submittedPostcode, setSubmittedPostcode] = useState(''); // New state for submitted postcode
+  const [submittedPostcode, setSubmittedPostcode] = useState('');
   const [showOutput, setShowOutput] = useState(false);
-  const [isRecyclable, setIsRecyclable] = useState(null); // null, true, or false
-  const [selectedImage, setSelectedImage] = useState(null);
+  const [isRecyclable, setIsRecyclable] = useState(null);
+  const [stagedImageUri, setStagedImageUri] = useState(null); // Image URI staged for submission
+  const [submittedImageDisplayUri, setSubmittedImageDisplayUri] = useState(null); // Image URI that was part of the last submission
   const [loading, setLoading] = useState(false);
 
   const handleImageUpload = async () => {
@@ -45,17 +46,10 @@ const App = () => {
 
     if (!result.canceled) {
       const selectedImgUri = result.assets[0].uri;
-      console.log("Selected image:", selectedImgUri);
-      setSelectedImage(selectedImgUri);
-      setSubmittedItem('Uploaded Image');
-      // For image uploads, we might not have a postcode yet, or decide how to handle it.
-      // For now, let's assume postcode is mainly for text submissions.
-      // If postcode is entered with image, it could be used.
-      setSubmittedPostcode(postcodeValue); // Capture postcode if entered
-      setIsRecyclable(Math.random() > 0.5); // Dummy logic
-      setShowOutput(true);
-      setInputValue('');
-      // setPostcodeValue(''); // Optionally clear postcode on image upload too
+      console.log("Staging image:", selectedImgUri);
+      setStagedImageUri(selectedImgUri);
+      // Do not submit or show output here, just stage the image.
+      // User can now type text or postcode before hitting submit.
     }
   };
 
@@ -63,29 +57,41 @@ const App = () => {
     const trimmedInput = inputValue.trim();
     const trimmedPostcode = postcodeValue.trim();
 
-    if (!trimmedInput && !selectedImage) { // Require item input or an image
-        // Optionally, show an alert or message if no item is provided
-        console.log("No item or image provided.");
-        return;
+    // Check if there's any input (text or staged image)
+    if (!trimmedInput && !stagedImageUri) {
+      console.log("No item text or image provided for submission.");
+      // Optionally, show an alert to the user.
+      return;
     }
-    if (!trimmedPostcode && !selectedImage) { // Require postcode if no image (can be adjusted)
-        // Optionally, show an alert or message if no postcode is provided for text input
-        console.log("Postcode not provided for text input.");
-        // For MVP, let's allow submission without postcode for now, but log it.
+    // Postcode check can remain or be adjusted based on requirements
+    // For now, let's assume postcode is optional if an image is present.
+    if (!trimmedPostcode && !stagedImageUri && trimmedInput) {
+        console.log("Postcode not provided for text input (optional).");
     }
-
 
     setLoading(true);
-    setSubmittedItem(trimmedInput || "Uploaded Image"); // Use input or placeholder for image
+    setShowOutput(false); // Hide previous output immediately
+
+    // Determine submitted item name
+    let currentSubmittedItemName = trimmedInput;
+    if (stagedImageUri && !trimmedInput) {
+      currentSubmittedItemName = "Uploaded Image";
+    } else if (stagedImageUri && trimmedInput) {
+      currentSubmittedItemName = `${trimmedInput}`;
+    }
+    setSubmittedItem(currentSubmittedItemName);
     setSubmittedPostcode(trimmedPostcode);
-    setSelectedImage(null); // Clear image if submitting text
+    setSubmittedImageDisplayUri(stagedImageUri); // Set the image that will be displayed in output
+
+    // Clear inputs now
     setInputValue('');
-    setPostcodeValue(''); // Clear postcode field
+    setPostcodeValue('');
+    setStagedImageUri(null); // Clear the staged image after it's been "submitted"
 
     try {
-      // Replace this with your actual API endpoint and logic
-      // You would likely send both 'item' and 'postcode' to your backend
-      console.log("Submitting item:", trimmedInput, "Postcode:", trimmedPostcode);
+      // Simulate API call
+      // In a real app, you'd send: trimmedInput, trimmedPostcode, and stagedImageUri (or the image file)
+      console.log("Submitting: Item Text:", trimmedInput, "Postcode:", trimmedPostcode, "Image URI:", submittedImageDisplayUri);
       const dummyApiResponse = Math.random() > 0.5; // Dummy YES/NO
       // Example:
       // const response = await fetch('https://your-api.com/check', {
@@ -132,10 +138,10 @@ const App = () => {
 
           {showOutput && !loading && (
             <View style={styles.outputContainer}>
-              {selectedImage && (
+              {submittedImageDisplayUri && ( // Display the image that was part of the submission
                 <Image
-                  source={{ uri: selectedImage }}
-                  style={styles.uploadedImage} // Added style for uploaded image
+                  source={{ uri: submittedImageDisplayUri }}
+                  style={styles.uploadedImage}
                   resizeMode="cover"
                 />
               )}
@@ -162,13 +168,18 @@ const App = () => {
             keyboardAppearance="dark" // For iOS dark keyboard
           />
 
+          {/* Optional: Visual cue for staged image */}
+          {stagedImageUri && (
+            <Text style={styles.stagedImageText}>Image selected, ready to submit.</Text>
+          )}
+
           <View style={styles.inputBar}>
             <TouchableOpacity onPress={handleImageUpload} style={styles.iconButton}>
               <Text style={styles.iconText}>📷</Text>
             </TouchableOpacity>
             <TextInput
               style={styles.textInput}
-              placeholder="Type item or upload image..."
+              placeholder={stagedImageUri ? "Add details (optional)" : "Type item or upload image..."}
               placeholderTextColor={COLORS.placeholderTextColor}
               value={inputValue}
               onChangeText={setInputValue}
@@ -267,6 +278,13 @@ const styles = StyleSheet.create({
     color: COLORS.secondaryText, // Dimmer light text
     marginBottom: 5,
     fontWeight: '500',
+  },
+  stagedImageText: { // Style for the staged image indicator
+    color: COLORS.placeholderTextColor,
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 8,
+    fontStyle: 'italic',
   },
   spacer: {
     flex: 1,
