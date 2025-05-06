@@ -19,7 +19,9 @@ const COLORS = {
 
 const App = () => {
   const [inputValue, setInputValue] = useState('');
+  const [postcodeValue, setPostcodeValue] = useState(''); // New state for postcode
   const [submittedItem, setSubmittedItem] = useState('');
+  const [submittedPostcode, setSubmittedPostcode] = useState(''); // New state for submitted postcode
   const [showOutput, setShowOutput] = useState(false);
   const [isRecyclable, setIsRecyclable] = useState(null); // null, true, or false
   const [selectedImage, setSelectedImage] = useState(null);
@@ -43,23 +45,44 @@ const App = () => {
       console.log("Selected image:", selectedImgUri);
       setSelectedImage(selectedImgUri);
       setSubmittedItem('Uploaded Image');
+      // For image uploads, we might not have a postcode yet, or decide how to handle it.
+      // For now, let's assume postcode is mainly for text submissions.
+      // If postcode is entered with image, it could be used.
+      setSubmittedPostcode(postcodeValue); // Capture postcode if entered
       setIsRecyclable(Math.random() > 0.5); // Dummy logic
       setShowOutput(true);
       setInputValue('');
+      // setPostcodeValue(''); // Optionally clear postcode on image upload too
     }
   };
 
   const handleSubmit = async () => {
     const trimmedInput = inputValue.trim();
-    if (!trimmedInput) return;
+    const trimmedPostcode = postcodeValue.trim();
+
+    if (!trimmedInput && !selectedImage) { // Require item input or an image
+        // Optionally, show an alert or message if no item is provided
+        console.log("No item or image provided.");
+        return;
+    }
+    if (!trimmedPostcode && !selectedImage) { // Require postcode if no image (can be adjusted)
+        // Optionally, show an alert or message if no postcode is provided for text input
+        console.log("Postcode not provided for text input.");
+        // For MVP, let's allow submission without postcode for now, but log it.
+    }
+
 
     setLoading(true);
-    setSubmittedItem(trimmedInput);
-    setSelectedImage(null); // Clear image if typing
+    setSubmittedItem(trimmedInput || "Uploaded Image"); // Use input or placeholder for image
+    setSubmittedPostcode(trimmedPostcode);
+    setSelectedImage(null); // Clear image if submitting text
     setInputValue('');
+    setPostcodeValue(''); // Clear postcode field
 
     try {
       // Replace this with your actual API endpoint and logic
+      // You would likely send both 'item' and 'postcode' to your backend
+      console.log("Submitting item:", trimmedInput, "Postcode:", trimmedPostcode);
       const dummyApiResponse = Math.random() > 0.5; // Dummy YES/NO
       // Example:
       // const response = await fetch('https://your-api.com/check', {
@@ -93,6 +116,7 @@ const App = () => {
     tip: isRecyclable
       ? "Make sure it's empty, rinsed, and the cap is on!"
       : "Check for alternative recycling points near you.",
+    councilName: submittedPostcode ? `Council for ${submittedPostcode}` : "Anytown Council", // Dummy council name
   };
 
   return (
@@ -117,11 +141,22 @@ const App = () => {
                 {outputData.status}
               </Text>
               <Text style={styles.outputBinInfo}>{outputData.binInfo}</Text>
+              <Text style={styles.outputCouncilInfo}>{outputData.councilName}</Text> {/* New council display */}
               <Text style={styles.outputTip}>Tip: {outputData.tip}</Text>
             </View>
           )}
 
           <View style={styles.spacer} />
+
+          {/* Postcode Input Field */}
+          <TextInput
+            style={styles.postcodeTextInput}
+            placeholder="Enter your postcode (e.g., SW1A 1AA)"
+            placeholderTextColor={COLORS.secondaryText}
+            value={postcodeValue}
+            onChangeText={setPostcodeValue}
+            onSubmitEditing={handleSubmit} // Optional: allow submitting from postcode field
+          />
 
           <View style={styles.inputBar}>
             <TouchableOpacity onPress={handleImageUpload} style={styles.iconButton}>
@@ -211,8 +246,26 @@ const styles = StyleSheet.create({
     color: COLORS.secondaryText,
     fontStyle: 'italic',
   },
+  outputCouncilInfo: { // Style for the new council name display
+    fontSize: Platform.OS === 'web' ? 17 : 15,
+    color: COLORS.secondaryText,
+    marginBottom: 5,
+    fontWeight: '500',
+  },
   spacer: {
     flex: 1,
+  },
+  postcodeTextInput: { // Style for the new postcode input
+    height: 45,
+    backgroundColor: COLORS.inputBarBackground,
+    borderRadius: 22,
+    paddingHorizontal: 15,
+    fontSize: Platform.OS === 'web' ? 17 : 15,
+    color: COLORS.primaryText,
+    marginBottom: 10, // Space between postcode input and item input bar
+    borderWidth: 1,
+    borderColor: COLORS.borderColor,
+    width: '100%', // Make it full width within the card padding
   },
   inputBar: {
     flexDirection: 'row',
