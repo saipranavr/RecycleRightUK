@@ -2,19 +2,22 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, Platform, Dimensions, Image, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
-// Color palette
+// New Luma-inspired Color Palette
 const COLORS = {
-  background: '#8132a8',
-  cardBackground: '#FFFFFF',
-  primaryText: '#333333',
-  secondaryText: '#555555',
-  accentGreen: '#2E7D32',
-  recyclable: '#4CAF50',
-  notRecyclable: '#D32F2F',
-  inputBarBackground: '#E8EAF6',
-  iconColor: '#3949AB',
-  borderColor: '#CFD8DC',
-  shadowColor: '#000',
+  background: '#1A1A2E', // Deep dark blue/purple
+  cardBackground: 'rgba(255, 255, 255, 0.1)', // Semi-transparent white
+  inputBackground: 'rgba(255, 255, 255, 0.15)', // Slightly more opaque for inputs
+  outputBackground: 'rgba(255, 255, 255, 0.08)', // Subtle difference for output area
+  primaryText: '#E0E0E0', // Light gray for primary text
+  secondaryText: '#B0B0B0', // Dimmer gray for secondary text
+  accentGreen: '#50FA7B', // Vibrant green for header (like Dracula theme green)
+  recyclable: '#50FA7B', // Vibrant green for "YES"
+  notRecyclable: '#FF5555', // Vibrant red for "NO"
+  iconColor: '#BD93F9', // Vibrant purple for icons
+  borderColor: 'rgba(255, 255, 255, 0.2)', // Light semi-transparent border
+  shadowColor: 'rgba(0, 0, 0, 0.5)', // Darker shadow for depth, or could be a light glow
+  placeholderTextColor: '#A0A0A0', // Specific placeholder color
+  activityIndicatorColor: '#BD93F9', // Color for the loading spinner
 };
 
 const App = () => {
@@ -125,14 +128,14 @@ const App = () => {
         <View style={styles.card}>
           <Text style={styles.headerText}>RecycleRight UK</Text>
 
-          {loading && <ActivityIndicator size="large" color={COLORS.iconColor} style={{ marginBottom: 15 }} />}
+          {loading && <ActivityIndicator size="large" color={COLORS.activityIndicatorColor} style={{ marginBottom: 15 }} />}
 
           {showOutput && !loading && (
             <View style={styles.outputContainer}>
               {selectedImage && (
                 <Image
                   source={{ uri: selectedImage }}
-                  style={{ width: '100%', height: 200, borderRadius: 10, marginBottom: 10 }}
+                  style={styles.uploadedImage} // Added style for uploaded image
                   resizeMode="cover"
                 />
               )}
@@ -152,10 +155,11 @@ const App = () => {
           <TextInput
             style={styles.postcodeTextInput}
             placeholder="Enter your postcode (e.g., SW1A 1AA)"
-            placeholderTextColor={COLORS.secondaryText}
+            placeholderTextColor={COLORS.placeholderTextColor}
             value={postcodeValue}
             onChangeText={setPostcodeValue}
             onSubmitEditing={handleSubmit} // Optional: allow submitting from postcode field
+            keyboardAppearance="dark" // For iOS dark keyboard
           />
 
           <View style={styles.inputBar}>
@@ -165,10 +169,11 @@ const App = () => {
             <TextInput
               style={styles.textInput}
               placeholder="Type item or upload image..."
-              placeholderTextColor={COLORS.secondaryText}
+              placeholderTextColor={COLORS.placeholderTextColor}
               value={inputValue}
               onChangeText={setInputValue}
               onSubmitEditing={handleSubmit}
+              keyboardAppearance="dark" // For iOS dark keyboard
             />
             <TouchableOpacity onPress={handleSubmit} style={styles.iconButton}>
               <Text style={styles.iconText}>➔</Text>
@@ -195,39 +200,49 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   card: {
-    backgroundColor: COLORS.cardBackground,
+    backgroundColor: COLORS.cardBackground, // Semi-transparent
     borderRadius: 20,
     padding: 20,
     width: Platform.OS === 'web' ? Math.min(screenWidth - 40, 500) : '90%',
     maxWidth: 500,
-    minHeight: Platform.OS === 'web' ? 450 : '70%',
+    minHeight: Platform.OS === 'web' ? 480 : '75%', // Slightly increased min height
     shadowColor: COLORS.shadowColor,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 6 }, // Adjusted shadow
+    shadowOpacity: Platform.OS === 'web' ? 0.3 : 0.6, // Stronger shadow for depth
+    shadowRadius: 10,
+    elevation: 8, // For Android shadow
     display: 'flex',
     flexDirection: 'column',
+    borderWidth: 1, // Subtle border for definition
+    borderColor: COLORS.borderColor,
   },
   headerText: {
     fontSize: Platform.OS === 'web' ? 32 : 28,
     fontWeight: 'bold',
-    color: COLORS.accentGreen,
+    color: COLORS.accentGreen, // Vibrant green
     textAlign: 'center',
     marginBottom: 25,
   },
   outputContainer: {
     marginBottom: 20,
     padding: 15,
-    backgroundColor: '#F9F9F9',
+    backgroundColor: COLORS.outputBackground, // Semi-transparent
+    borderRadius: 15, // More rounded
+    borderWidth: 1,
+    borderColor: COLORS.borderColor,
+  },
+  uploadedImage: { // Style for the uploaded image in output
+    width: '100%',
+    height: 200,
     borderRadius: 10,
+    marginBottom: 15,
     borderWidth: 1,
     borderColor: COLORS.borderColor,
   },
   outputItemName: {
     fontSize: Platform.OS === 'web' ? 20 : 18,
     fontWeight: 'bold',
-    color: COLORS.primaryText,
+    color: COLORS.primaryText, // Light text
     marginBottom: 8,
   },
   outputStatus: {
@@ -235,61 +250,62 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 8,
     textAlign: 'center',
+    // Color is set dynamically
   },
   outputBinInfo: {
     fontSize: Platform.OS === 'web' ? 18 : 16,
-    color: COLORS.secondaryText,
+    color: COLORS.secondaryText, // Dimmer light text
     marginBottom: 5,
   },
   outputTip: {
     fontSize: Platform.OS === 'web' ? 16 : 14,
-    color: COLORS.secondaryText,
+    color: COLORS.secondaryText, // Dimmer light text
     fontStyle: 'italic',
   },
-  outputCouncilInfo: { // Style for the new council name display
+  outputCouncilInfo: {
     fontSize: Platform.OS === 'web' ? 17 : 15,
-    color: COLORS.secondaryText,
+    color: COLORS.secondaryText, // Dimmer light text
     marginBottom: 5,
     fontWeight: '500',
   },
   spacer: {
     flex: 1,
   },
-  postcodeTextInput: { // Style for the new postcode input
-    height: 45,
-    backgroundColor: COLORS.inputBarBackground,
-    borderRadius: 22,
-    paddingHorizontal: 15,
+  postcodeTextInput: {
+    height: 50, // Increased height
+    backgroundColor: COLORS.inputBackground, // Semi-transparent
+    borderRadius: 25, // Fully rounded
+    paddingHorizontal: 20,
     fontSize: Platform.OS === 'web' ? 17 : 15,
-    color: COLORS.primaryText,
-    marginBottom: 10, // Space between postcode input and item input bar
+    color: COLORS.primaryText, // Light text
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: COLORS.borderColor,
-    width: '100%', // Make it full width within the card padding
+    width: '100%',
   },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.inputBarBackground,
-    borderRadius: 25,
+    backgroundColor: COLORS.inputBackground, // Semi-transparent
+    borderRadius: 25, // Fully rounded
     paddingHorizontal: 10,
-    paddingVertical: Platform.OS === 'web' ? 10 : 8,
+    paddingVertical: Platform.OS === 'web' ? 8 : 6, // Slightly reduced vertical padding
     marginTop: 'auto',
     borderWidth: 1,
     borderColor: COLORS.borderColor,
   },
   iconButton: {
-    padding: 10,
+    padding: 12, // Slightly increased padding
   },
   iconText: {
     fontSize: Platform.OS === 'web' ? 24 : 20,
-    color: COLORS.iconColor,
+    color: COLORS.iconColor, // Vibrant icon color
   },
   textInput: {
     flex: 1,
-    height: 40,
-    fontSize: Platform.OS === 'web' ? 18 : 16,
-    color: COLORS.primaryText,
+    height: 48, // Increased height to match postcode input
+    fontSize: Platform.OS === 'web' ? 17 : 15,
+    color: COLORS.primaryText, // Light text
     marginLeft: 8,
     marginRight: 8,
   },
