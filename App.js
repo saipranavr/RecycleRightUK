@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, Platform, Dimensions, Image, ActivityIndicator, Linking } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, Platform, Dimensions, Image, ActivityIndicator, Linking, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import './global.css';
@@ -31,8 +31,17 @@ const App = () => {
   const [isRecyclable, setIsRecyclable] = useState(null);
   const [stagedImageUri, setStagedImageUri] = useState(null); // Image URI staged for submission
   const [submittedImageDisplayUri, setSubmittedImageDisplayUri] = useState(null); // Image URI that was part of the last submission
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // For main recyclability check
   const [currentFactIndex, setCurrentFactIndex] = useState(0);
+  const [reuseIdeas, setReuseIdeas] = useState([]);
+  const [loadingReuseIdeas, setLoadingReuseIdeas] = useState(false);
+
+  // --- IMPORTANT SECURITY WARNING ---
+  // The API key below is exposed in client-side code.
+  // This is highly insecure for production apps.
+  // Consider moving API calls to a backend server.
+  
+  // --- END SECURITY WARNING ---
 
   const RECYCLING_FACTS = [
     "UK households produce over 26 million tonnes of waste each year.",
@@ -101,7 +110,8 @@ const App = () => {
     }
 
     setLoading(true);
-    setShowOutput(false); // Hide previous output immediately
+    setShowOutput(false); // Hide previous output for main result
+    setReuseIdeas([]); // Clear previous reuse ideas
 
     // Determine submitted item name
     let currentSubmittedItemName = trimmedInput;
@@ -148,6 +158,7 @@ const App = () => {
         setShowOutput(true);
         setLoading(false);
         setCurrentFactIndex((prevIndex) => (prevIndex + 1) % RECYCLING_FACTS.length);
+        fetchReuseIdeasFromGPT(currentSubmittedItemName); // Call the new GPT function
       }, 800); // Simulate network delay
     } catch (error) {
       console.error("API error:", error);
@@ -167,12 +178,68 @@ const App = () => {
     tip: isRecyclable
       ? "Make sure it's empty, rinsed, and the cap is on!"
       : "Check for alternative recycling points near you.",
-    councilName: submittedPostcode ? `Council for ${submittedPostcode}` : "Anytown Council", // Dummy council name
+    councilName: submittedPostcode ? `Council for ${submittedPostcode}` : "My Council", // Default to "My Council"
   };
 
+  const fetchReuseIdeasFromGPT = async (itemName) => {
+    if (!itemName || itemName.trim() === "" || itemName.toLowerCase() === "uploaded image") {
+      // Avoid calling API for generic "Uploaded Image" or empty string
+      // Provide a specific message if it's just an image without description
+      setReuseIdeas(itemName.toLowerCase() === "uploaded image" ? ["Please describe the uploaded image for specific reuse ideas."] : []);
+      setLoadingReuseIdeas(false);
+      return;
+    }
+    setLoadingReuseIdeas(true);
+    setReuseIdeas([]);
+
+    const prompt = `Give me 2 practical and two creative reuse or upcycling ideas for this item: "${itemName}". Keep them short and useful. Provide the output as a numbered list (e.g., 1. Idea one. 2. Idea two.).`;
+    console.log("Fetching reuse ideas from GPT for:", itemName);
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gpt-3.5-turbo",
+          messages: [
+            { role: "system", content: "You are a helpful assistant who gives concise, eco-friendly reuse ideas as a numbered list." },
+            { role: "user", content: prompt }
+          ],
+          max_tokens: 150,
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("OpenAI API Error:", response.status, errorData);
+        throw new Error(`OpenAI API Error: ${response.status} ${errorData.error?.message || 'Unknown error'}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0]?.message?.content;
+
+      if (content) {
+        const parsedIdeas = content.split('\n')
+          .map(idea => idea.replace(/^\d+\.\s*/, '').trim()) // Remove "1. ", "2. ", etc.
+          .filter(idea => idea.length > 0); // Remove any empty lines
+        setReuseIdeas(parsedIdeas.slice(0, 4)); // Take up to 4 ideas
+      } else {
+        setReuseIdeas(["Could not fetch ideas at this time."]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch reuse ideas:", error);
+      setReuseIdeas([`Sorry, an error occurred: ${error.message}`]);
+    } finally {
+      setLoadingReuseIdeas(false);
+    }
+  };
+
+
   const handleCouncilGuideLink = () => {
-    // In a real app, this would navigate or open a modal with council-specific info.
-    // For now, it's a dummy link.
     console.log(`Clicked council guide link for: ${outputData.councilName}`);
     const dummyCouncilUrl = `https://www.google.com/search?q=recycling+guide+${outputData.councilName.replace(/\s/g, '+')}`;
     Linking.canOpenURL(dummyCouncilUrl).then(supported => {
@@ -186,40 +253,43 @@ const App = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.appContainer}>
-        <View style={styles.card}>
-          <Text style={styles.headerText}>RecycleRight UK</Text>
-          <Text style={styles.factText}>Did you know? {RECYCLING_FACTS[currentFactIndex]}</Text>
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        <View style={styles.appContainer}>
+          <View style={styles.cardsRowContainer}>
+            {/* Main Card */}
+            <View style={styles.mainCard}>
+              <Text style={styles.headerText}>RecycleRight UK</Text>
+            <Text style={styles.factText}>Did you know? {RECYCLING_FACTS[currentFactIndex]}</Text>
 
-          {loading && <ActivityIndicator size="large" color={COLORS.activityIndicatorColor} style={styles.activityIndicator} />}
+            {loading && <ActivityIndicator size="large" color={COLORS.activityIndicatorColor} style={styles.activityIndicator} />}
 
-          {showOutput && !loading && (
-            <View style={styles.outputContainer}>
-              {submittedImageDisplayUri && (
-                <Image
-                  source={{ uri: submittedImageDisplayUri }}
-                  style={styles.uploadedImage}
-                  resizeMode="cover"
-                />
-              )}
-              <Text style={styles.outputItemName}>{outputData.itemName}</Text>
-              <Text style={[styles.outputStatus, { color: outputData.statusColor }]}>
-                {outputData.status}
-              </Text>
-              <Text style={styles.outputBinInfo}>{outputData.binInfo}</Text>
-              <Text style={styles.outputCouncilInfo}>{outputData.councilName}</Text>
-              <Text style={styles.outputTip}>Tip: {outputData.tip}</Text>
-              {submittedPostcode && (
-                <TouchableOpacity onPress={handleCouncilGuideLink} style={styles.councilGuideButton}>
-                  <Text style={styles.councilGuideButtonText}>See what {outputData.councilName} accepts</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
+            {showOutput && !loading && (
+              <View style={styles.outputContainer}>
+                {submittedImageDisplayUri && (
+                  <Image
+                    source={{ uri: submittedImageDisplayUri }}
+                    style={styles.uploadedImage}
+                    resizeMode="cover"
+                  />
+                )}
+                <Text style={styles.outputItemName}>{outputData.itemName}</Text>
+                <Text style={[styles.outputStatus, { color: outputData.statusColor }]}>
+                  {outputData.status}
+                </Text>
+                <Text style={styles.outputBinInfo}>{outputData.binInfo}</Text>
+                <Text style={styles.outputCouncilInfo}>{outputData.councilName}</Text>
+                <Text style={styles.outputTip}>Tip: {outputData.tip}</Text>
+                {submittedPostcode && (
+                  <TouchableOpacity onPress={handleCouncilGuideLink} style={styles.councilGuideButton}>
+                    <Text style={styles.councilGuideButtonText}>See what {outputData.councilName} accepts</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
 
-          <View style={styles.spacer} />
+            <View style={styles.spacer} />
 
-          {/* Postcode Input Field */}
+            {/* Postcode Input Field */}
           <TextInput
             style={styles.postcodeTextInput}
             placeholder="Enter your postcode (e.g., SW1A 1AA)"
@@ -235,25 +305,46 @@ const App = () => {
             <Text style={styles.stagedImageText}>Image selected, ready to submit.</Text>
           )}
 
-          <View style={styles.inputBar}>
-            <TouchableOpacity onPress={handleImageUpload} style={styles.iconButton}>
-              <Text style={styles.iconText}>📷</Text>
-            </TouchableOpacity>
-            <TextInput
-              style={styles.textInput}
-              placeholder={stagedImageUri ? "Add details (optional)" : "Type item or upload image..."}
-              placeholderTextColor={COLORS.placeholderTextColor}
-              value={inputValue}
-              onChangeText={setInputValue}
-              onSubmitEditing={handleSubmit}
-              keyboardAppearance="dark" // For iOS dark keyboard
-            />
-            <TouchableOpacity onPress={handleSubmit} style={styles.iconButton}>
-              <Text style={styles.iconText}>➔</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={styles.inputBar}>
+              <TouchableOpacity onPress={handleImageUpload} style={styles.iconButton}>
+                <Text style={styles.iconText}>📷</Text>
+              </TouchableOpacity>
+              <TextInput
+                style={styles.textInput}
+                placeholder={stagedImageUri ? "Add details (optional)" : "Type item or upload image..."}
+                placeholderTextColor={COLORS.placeholderTextColor}
+                value={inputValue}
+                onChangeText={setInputValue}
+                onSubmitEditing={handleSubmit}
+                keyboardAppearance="dark" // For iOS dark keyboard
+              />
+              <TouchableOpacity onPress={handleSubmit} style={styles.iconButton}>
+                <Text style={styles.iconText}>➔</Text>
+              </TouchableOpacity>
+            </View>
+            {/* End of Main Card inputs */}
+            </View> 
+            {/* End of Main Card View */}
+
+            {/* Reuse Ideas Card - Conditionally rendered to the side on web, stacked on mobile */}
+            {showOutput && submittedItem && (
+              <View style={styles.reuseCardContainer}>
+                <Text style={styles.reuseCardTitle}>💡 Reuse Ideas for {outputData.itemName}</Text>
+                {loadingReuseIdeas && <ActivityIndicator size="small" color={COLORS.activityIndicatorColor} style={{ marginVertical: 10 }} />}
+                {!loadingReuseIdeas && reuseIdeas.length > 0 && (
+                  reuseIdeas.map((idea, index) => (
+                    <Text key={index} style={styles.reuseIdeaText}>• {idea}</Text>
+                  ))
+                )}
+                {!loadingReuseIdeas && reuseIdeas.length === 0 && submittedItem && (
+                  <Text style={styles.noReuseIdeasText}>No specific reuse ideas found for this item. Get creative!</Text>
+                )}
+              </View>
+            )}
+          </View> 
+          {/* End of cardsRowContainer */}
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -265,20 +356,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  appContainer: {
-    flex: 1,
+  scrollContainer: { // For ScrollView
+    flexGrow: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: Platform.OS === 'web' ? 20 : 10,
-    backgroundColor: COLORS.background,
   },
-  card: {
-    backgroundColor: COLORS.cardBackground, // Semi-transparent
+  appContainer: { // This container wraps the row of cards
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: Platform.OS === 'web' ? 10 : 10, // Adjusted padding
+    backgroundColor: COLORS.background,
+    width: '100%', // Ensure it takes full width for row layout
+  },
+  cardsRowContainer: { // New container for side-by-side layout
+    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
+    alignItems: Platform.OS === 'web' ? 'flex-start' : 'center', // Align tops on web
+    justifyContent: 'center', // Center the group of cards
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 1000 : 500, // Max width for the row of cards on web
+  },
+  mainCard: { // Styles for the main card, previously 'card'
+    backgroundColor: COLORS.cardBackground,
     borderRadius: 20,
     padding: 20,
-    width: Platform.OS === 'web' ? Math.min(screenWidth - 40, 500) : '90%',
-    maxWidth: 500,
-    minHeight: Platform.OS === 'web' ? 480 : '75%', // Slightly increased min height
+    width: Platform.OS === 'web' ? '58%' : '90%', // Adjust width for side-by-side
+    maxWidth: Platform.OS === 'web' ? 500 : 500, // Max width for main card
+    marginRight: Platform.OS === 'web' ? '2%' : 0, // Margin between cards on web
+    marginBottom: Platform.OS === 'web' ? 0 : 20, // Margin below on mobile
     shadowColor: COLORS.shadowColor,
     shadowOffset: { width: 0, height: 6 }, // Adjusted shadow
     shadowOpacity: Platform.OS === 'web' ? 0.3 : 0.6, // Stronger shadow for depth
@@ -375,8 +478,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontStyle: 'italic',
   },
-  spacer: {
+  spacer: { // This spacer is inside the first card
     flex: 1,
+    minHeight: 50, // Ensure some space even if output is small
   },
   postcodeTextInput: {
     height: 50, // Increased height
@@ -415,6 +519,43 @@ const styles = StyleSheet.create({
     color: COLORS.primaryText, // Light text
     marginLeft: 8,
     marginRight: 8,
+  },
+  // Styles for Reuse Ideas Card
+  reuseCardContainer: { // Renamed from reuseCard, and using common card styles + specific ones
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 20,
+    padding: 20,
+    width: Platform.OS === 'web' ? '38%' : '90%', // Adjust width for side-by-side
+    maxWidth: Platform.OS === 'web' ? 400 : 500,
+    marginTop: Platform.OS === 'web' ? 0 : 20, // No top margin if side-by-side on web
+    shadowColor: COLORS.shadowColor,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: Platform.OS === 'web' ? 0.3 : 0.6,
+    shadowRadius: 10,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: COLORS.borderColor,
+    alignSelf: Platform.OS === 'web' ? 'flex-start' : 'center', // Align self for web row
+  },
+  reuseCardTitle: {
+    fontSize: Platform.OS === 'web' ? 20 : 18,
+    fontWeight: 'bold',
+    color: COLORS.accentGreen, // Use a distinct color, maybe accentGreen or primaryText
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  reuseIdeaText: {
+    fontSize: Platform.OS === 'web' ? 15 : 14,
+    color: COLORS.primaryText,
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  noReuseIdeasText: {
+    fontSize: Platform.OS === 'web' ? 14 : 13,
+    color: COLORS.secondaryText,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: 10,
   },
 });
 
