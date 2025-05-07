@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, Platform, Dimensions, Image, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, Platform, Dimensions, Image, ActivityIndicator, Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import './global.css';
 
 // New Luma-inspired Color Palette
 const COLORS = {
@@ -30,6 +32,35 @@ const App = () => {
   const [stagedImageUri, setStagedImageUri] = useState(null); // Image URI staged for submission
   const [submittedImageDisplayUri, setSubmittedImageDisplayUri] = useState(null); // Image URI that was part of the last submission
   const [loading, setLoading] = useState(false);
+  const [currentFactIndex, setCurrentFactIndex] = useState(0);
+
+  const RECYCLING_FACTS = [
+    "UK households produce over 26 million tonnes of waste each year.",
+    "Recycling one aluminum can save enough energy to run a TV for 3 hours.",
+    "Glass is 100% recyclable and can be recycled endlessly without loss in quality.",
+    "Around 80% of the things we throw away could be recycled.",
+    "Plastic bags can take up to 1,000 years to decompose in landfills.",
+    "The average person in the UK throws away their body weight in rubbish every seven weeks.",
+    "Contamination is a major issue in recycling – always clean your recyclables!"
+  ];
+  const SAVED_POSTCODE_KEY = '@RecycleRightUK_savedPostcode';
+
+  useEffect(() => {
+    const loadSavedPostcode = async () => {
+      try {
+        const savedPostcode = await AsyncStorage.getItem(SAVED_POSTCODE_KEY);
+        if (savedPostcode !== null) {
+          setPostcodeValue(savedPostcode);
+          setSubmittedPostcode(savedPostcode); // To pre-fill council name if app opens with saved postcode
+          console.log('Loaded saved postcode:', savedPostcode);
+        }
+      } catch (e) {
+        console.error('Failed to load postcode.', e);
+      }
+    };
+    loadSavedPostcode();
+  }, []);
+
 
   const handleImageUpload = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -81,17 +112,27 @@ const App = () => {
     }
     setSubmittedItem(currentSubmittedItemName);
     setSubmittedPostcode(trimmedPostcode);
-    setSubmittedImageDisplayUri(stagedImageUri); // Set the image that will be displayed in output
+    setSubmittedImageDisplayUri(stagedImageUri);
+
+    // Save postcode if valid
+    if (trimmedPostcode) {
+      try {
+        await AsyncStorage.setItem(SAVED_POSTCODE_KEY, trimmedPostcode);
+        console.log('Saved postcode:', trimmedPostcode);
+      } catch (e) {
+        console.error('Failed to save postcode.', e);
+      }
+    }
 
     // Clear inputs now
     setInputValue('');
-    setPostcodeValue('');
-    setStagedImageUri(null); // Clear the staged image after it's been "submitted"
+    // Keep postcodeValue in the input if the user wants to reuse it, or clear it:
+    // setPostcodeValue(''); // Uncomment to clear postcode input after each submission
+    setStagedImageUri(null);
 
     try {
       // Simulate API call
-      // In a real app, you'd send: trimmedInput, trimmedPostcode, and stagedImageUri (or the image file)
-      console.log("Submitting: Item Text:", trimmedInput, "Postcode:", trimmedPostcode, "Image URI:", submittedImageDisplayUri);
+      console.log("Submitting: Item Text:", trimmedInput, "Postcode:", trimmedPostcode, "Image URI:", stagedImageUri);
       const dummyApiResponse = Math.random() > 0.5; // Dummy YES/NO
       // Example:
       // const response = await fetch('https://your-api.com/check', {
@@ -106,6 +147,7 @@ const App = () => {
         setIsRecyclable(dummyApiResponse);
         setShowOutput(true);
         setLoading(false);
+        setCurrentFactIndex((prevIndex) => (prevIndex + 1) % RECYCLING_FACTS.length);
       }, 800); // Simulate network delay
     } catch (error) {
       console.error("API error:", error);
@@ -128,17 +170,32 @@ const App = () => {
     councilName: submittedPostcode ? `Council for ${submittedPostcode}` : "Anytown Council", // Dummy council name
   };
 
+  const handleCouncilGuideLink = () => {
+    // In a real app, this would navigate or open a modal with council-specific info.
+    // For now, it's a dummy link.
+    console.log(`Clicked council guide link for: ${outputData.councilName}`);
+    const dummyCouncilUrl = `https://www.google.com/search?q=recycling+guide+${outputData.councilName.replace(/\s/g, '+')}`;
+    Linking.canOpenURL(dummyCouncilUrl).then(supported => {
+      if (supported) {
+        Linking.openURL(dummyCouncilUrl);
+      } else {
+        console.log("Don't know how to open URI: " + dummyCouncilUrl);
+      }
+    });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.appContainer}>
         <View style={styles.card}>
           <Text style={styles.headerText}>RecycleRight UK</Text>
+          <Text style={styles.factText}>Did you know? {RECYCLING_FACTS[currentFactIndex]}</Text>
 
-          {loading && <ActivityIndicator size="large" color={COLORS.activityIndicatorColor} style={{ marginBottom: 15 }} />}
+          {loading && <ActivityIndicator size="large" color={COLORS.activityIndicatorColor} style={styles.activityIndicator} />}
 
           {showOutput && !loading && (
             <View style={styles.outputContainer}>
-              {submittedImageDisplayUri && ( // Display the image that was part of the submission
+              {submittedImageDisplayUri && (
                 <Image
                   source={{ uri: submittedImageDisplayUri }}
                   style={styles.uploadedImage}
@@ -150,8 +207,13 @@ const App = () => {
                 {outputData.status}
               </Text>
               <Text style={styles.outputBinInfo}>{outputData.binInfo}</Text>
-              <Text style={styles.outputCouncilInfo}>{outputData.councilName}</Text> {/* New council display */}
+              <Text style={styles.outputCouncilInfo}>{outputData.councilName}</Text>
               <Text style={styles.outputTip}>Tip: {outputData.tip}</Text>
+              {submittedPostcode && (
+                <TouchableOpacity onPress={handleCouncilGuideLink} style={styles.councilGuideButton}>
+                  <Text style={styles.councilGuideButtonText}>See what {outputData.councilName} accepts</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -232,7 +294,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.accentGreen, // Vibrant green
     textAlign: 'center',
-    marginBottom: 25,
+    marginBottom: 10, // Reduced margin to accommodate fact
+  },
+  factText: { // Style for "Did you know?" facts
+    fontSize: Platform.OS === 'web' ? 13 : 12,
+    color: COLORS.secondaryText,
+    textAlign: 'center',
+    marginBottom: 15,
+    paddingHorizontal: 10,
+    fontStyle: 'italic',
+  },
+  activityIndicator: {
+    marginVertical: 20, // Give some space when loading
   },
   outputContainer: {
     marginBottom: 20,
@@ -278,6 +351,22 @@ const styles = StyleSheet.create({
     color: COLORS.secondaryText, // Dimmer light text
     marginBottom: 5,
     fontWeight: '500',
+  },
+  councilGuideButton: { // Style for the council guide link/button
+    marginTop: 15,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Subtle background
+    borderRadius: 20,
+    alignSelf: 'center', // Center the button
+    borderWidth: 1,
+    borderColor: COLORS.borderColor,
+  },
+  councilGuideButtonText: {
+    color: COLORS.accentGreen, // Use accent color for the link text
+    fontSize: Platform.OS === 'web' ? 14 : 13,
+    textAlign: 'center',
+    fontWeight: '600',
   },
   stagedImageText: { // Style for the staged image indicator
     color: COLORS.placeholderTextColor,
