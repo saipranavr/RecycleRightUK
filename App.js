@@ -35,8 +35,15 @@ const App = () => {
   const [currentFactIndex, setCurrentFactIndex] = useState(0);
   const [reuseIdeas, setReuseIdeas] = useState([]);
   const [loadingReuseIdeas, setLoadingReuseIdeas] = useState(false);
-  const [apiRawResponse, setApiRawResponse] = useState(''); // For the new API's raw_response
-  const [apiReason, setApiReason] = useState(''); // For the new API's reason
+  // New state variables for the new API response structure
+  const [binColor, setBinColor] = useState('');
+  const [tip, setTip] = useState('');
+  const [councilLink, setCouncilLink] = useState('');
+  const [apiAnswer, setApiAnswer] = useState(''); // To store the detailed answer
+  const [showMoreInfo, setShowMoreInfo] = useState(false); // To toggle detailed answer visibility
+  // apiRawResponse and apiReason might be deprecated by the new structure, let's clear them
+  // const [apiRawResponse, setApiRawResponse] = useState(''); 
+  // const [apiReason, setApiReason] = useState(''); 
 
   // --- IMPORTANT SECURITY WARNING ---
   // The API key below is exposed in client-side code.
@@ -97,7 +104,7 @@ const App = () => {
 
   const clearBackendHistory = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8003/clear', {
+      const response = await fetch('http://127.0.0.1:8000/clear', {
         method: 'POST',
         headers: {
           'accept': 'application/json',
@@ -200,7 +207,7 @@ const App = () => {
       // We rely on the console.log below to confirm parts.
       console.log("Submitting to local API. Query:", formData.get('query'), "Postcode:", formData.get('postcode'), "Image field present:", !!formData.get('image'));
 
-      const response = await fetch('http://127.0.0.1:8003/analyze/image', {
+      const response = await fetch('http://127.0.0.1:8000/analyze/image', {
         method: 'POST',
         body: formData,
         // headers: { 'Content-Type': 'multipart/form-data' }, // Usually not needed and can cause issues
@@ -219,31 +226,38 @@ const App = () => {
       const data = await response.json();
       console.log("Local API Response:", data);
 
-      // Update state based on API response
-      // How to interpret data.recyclable === null? For now, treat as unknown.
-      if (data.recyclable === true) {
+      // Update state based on the new API response structure
+      if (data.recyclable && data.recyclable.toLowerCase() === "yes") {
         setIsRecyclable(true);
-      } else if (data.recyclable === false) {
+      } else if (data.recyclable && data.recyclable.toLowerCase() === "no") {
         setIsRecyclable(false);
       } else {
-        setIsRecyclable(null); // Or some other state to indicate "Check details"
+        setIsRecyclable(null); // For "Maybe" or other non-binary responses
       }
-      setApiRawResponse(data.raw_response || '');
-      setApiReason(data.reason || '');
+      setBinColor(data.bin_color || '');
+      setTip(data.tip || '');
+      setApiAnswer(data.answer || '');
+      setCouncilLink(data.council_link || '');
+      // Clear old state if they are no longer used by the new API structure
+      // setApiRawResponse(''); // Deprecated by data.answer
+      // setApiReason(''); // Deprecated if not present in new API
 
       setShowOutput(true);
+      setShowMoreInfo(false); // Reset more info view on new submission
       setCurrentFactIndex((prevIndex) => (prevIndex + 1) % RECYCLING_FACTS.length);
       
-      // Determine what to send to GPT for reuse ideas
-      const gptInputForItemName = submittedImageDisplayUri && data.raw_response ? data.raw_response : currentSubmittedItemName;
-      fetchReuseIdeasFromGPT(gptInputForItemName);
+      // Revert to sending currentSubmittedItemName to GPT, as data.answer might be too verbose
+      fetchReuseIdeasFromGPT(currentSubmittedItemName);
 
     } catch (error) {
       console.error("Error submitting to local API:", error);
-      setApiRawResponse('');
-      setApiReason(`Error: ${error.message}`);
-      setIsRecyclable(null); // Reset recyclability status on error
-      setShowOutput(true); // Still show output card to display the error
+      // Clear all relevant output states on error
+      setIsRecyclable(null);
+      setBinColor('');
+      setTip('');
+      setApiAnswer(`Error: ${error.message}`);
+      setCouncilLink('');
+      setShowOutput(true); // Still show output card to display the error message
     } finally {
       setLoading(false);
     }
@@ -317,17 +331,17 @@ const App = () => {
 
 
   const handleCouncilGuideLink = () => {
-    // outputData was removed, use submittedPostcode directly or from state if needed for council name
-    const councilName = submittedPostcode ? `Council for ${submittedPostcode}` : "My Council";
-    console.log(`Clicked council guide link for: ${councilName}`);
-    const dummyCouncilUrl = `https://www.google.com/search?q=recycling+guide+${councilName.replace(/\s/g, '+')}`;
-    Linking.canOpenURL(dummyCouncilUrl).then(supported => {
+    const linkToOpen = councilLink || `https://www.google.com/search?q=recycling+guide+${submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"}`;
+    console.log(`Clicked council guide link. Opening: ${linkToOpen}`);
+    Linking.canOpenURL(linkToOpen).then(supported => {
       if (supported) {
-        Linking.openURL(dummyCouncilUrl);
+        Linking.openURL(linkToOpen);
       } else {
-        console.log("Don't know how to open URI: " + dummyCouncilUrl);
+        console.log("Don't know how to open URI: " + linkToOpen);
+        // Fallback or alert if Linking fails for some reason
+        alert(`Could not open the link: ${linkToOpen}`);
       }
-    });
+    }).catch(err => console.error('An error occurred opening the link', err));
   };
 
   return (
@@ -404,31 +418,31 @@ const App = () => {
                   styles.outputStatus,
                   { color: isRecyclable === true ? COLORS.recyclable : isRecyclable === false ? COLORS.notRecyclable : COLORS.secondaryText }
                 ]}>
-                  {isRecyclable === true ? "YES - Recyclable!" : isRecyclable === false ? "NO - Not Recyclable" : (apiRawResponse ? "Check Details Below" : "Status Unknown")}
+                  {isRecyclable === true ? "YES - Recyclable" : isRecyclable === false ? "NO - Not Recyclable" : "Status: Check Details"}
                 </Text>
 
-                {/* Displaying Raw Response from API */}
-                {apiRawResponse && (
-                  <View style={{marginBottom:10}}>
-                    <Text style={styles.apiResponseHeader}>Recycling Instructions:</Text>
-                    <Text style={styles.apiResponseText}>{apiRawResponse}</Text>
-                  </View>
+                {binColor && <Text style={styles.detailText}><Text style={styles.detailLabel}>Bin:</Text> {binColor}</Text>}
+                {tip && <Text style={styles.detailText}><Text style={styles.detailLabel}>Tip:</Text> {tip}</Text>}
+                
+                {(councilLink || submittedPostcode) && (
+                  <TouchableOpacity onPress={handleCouncilGuideLink} style={styles.councilGuideButton}>
+                    <Text style={styles.councilGuideButtonText}>
+                      {councilLink ? "View Council Guide" : `Search for ${submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"} Guide`}
+                    </Text>
+                  </TouchableOpacity>
                 )}
 
-                {/* Displaying Reason from API if available */}
-                {apiReason && (
-                  <View style={{marginBottom:10}}>
-                    <Text style={styles.apiResponseHeader}>Note:</Text>
-                    <Text style={styles.apiResponseText}>{apiReason}</Text>
-                  </View>
-                )}
-                
-                <Text style={styles.outputCouncilInfo}>{submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"}</Text>
-                
-                {submittedPostcode && (
-                  <TouchableOpacity onPress={handleCouncilGuideLink} style={styles.councilGuideButton}>
-                    <Text style={styles.councilGuideButtonText}>See what {submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"} accepts</Text>
+                {apiAnswer && (
+                  <TouchableOpacity onPress={() => setShowMoreInfo(!showMoreInfo)} style={styles.moreInfoButton}>
+                    <Text style={styles.moreInfoButtonText}>{showMoreInfo ? "Hide Details" : "More Info"}</Text>
                   </TouchableOpacity>
+                )}
+
+                {showMoreInfo && apiAnswer && (
+                  <View style={styles.moreInfoContainer}>
+                    <Text style={styles.apiResponseHeader}>Detailed Information:</Text>
+                    <Text style={styles.apiResponseText}>{apiAnswer}</Text>
+                  </View>
                 )}
               </View>
             )}
@@ -437,7 +451,7 @@ const App = () => {
             {/* Reuse Ideas Card - Conditionally rendered */}
             {showOutput && !loading && submittedItem && ( // Ensure it only shows when there's an item and output is ready
               <View style={styles.reuseCardContainer}>
-                <Text style={styles.reuseCardTitle}>💡 Reuse Ideas for {submittedItem}</Text>
+                <Text style={styles.reuseCardTitle}>💡 Reuse Ideas</Text>
                 {loadingReuseIdeas && <ActivityIndicator size="small" color={COLORS.activityIndicatorColor} style={{ marginVertical: 10 }} />}
                 {!loadingReuseIdeas && reuseIdeas.length > 0 && (
                   reuseIdeas.map((idea, index) => (
@@ -581,21 +595,21 @@ const styles = StyleSheet.create({
   outputStatus: { // For status in details card
     fontSize: Platform.OS === 'web' ? 22 : 20,
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 10, // Increased margin
     textAlign: 'center',
-    // Color is set dynamically
   },
-  outputBinInfo: { // This style might be deprecated if bin info is in raw_response
-    fontSize: Platform.OS === 'web' ? 18 : 16,
+  detailLabel: { // Style for labels like "Bin:", "Tip:"
+    fontWeight: 'bold',
+    color: COLORS.primaryText,
+  },
+  detailText: { // Style for the text next to labels
+    fontSize: Platform.OS === 'web' ? 16 : 15,
     color: COLORS.secondaryText,
-    marginBottom: 5,
+    marginBottom: 8,
+    lineHeight: 22,
   },
-  outputTip: { // This style might be deprecated if tip is in raw_response
-    fontSize: Platform.OS === 'web' ? 16 : 14,
-    color: COLORS.secondaryText,
-    fontStyle: 'italic',
-  },
-  apiResponseHeader: {
+  // outputBinInfo and outputTip styles are effectively replaced by detailText with labels
+  apiResponseHeader: { // For "Detailed Information:" header
     fontSize: Platform.OS === 'web' ? 16 : 15,
     fontWeight: 'bold',
     color: COLORS.primaryText,
@@ -606,6 +620,27 @@ const styles = StyleSheet.create({
     fontSize: Platform.OS === 'web' ? 14 : 13,
     color: COLORS.secondaryText,
     lineHeight: 20,
+  },
+  moreInfoButton: {
+    marginTop: 15,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)', // Even more subtle
+    borderRadius: 20,
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.borderColor,
+  },
+  moreInfoButtonText: {
+    color: COLORS.secondaryText,
+    fontSize: Platform.OS === 'web' ? 13 : 12,
+    textAlign: 'center',
+  },
+  moreInfoContainer: {
+    marginTop: 15,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderColor: COLORS.borderColor,
   },
   outputCouncilInfo: {
     fontSize: Platform.OS === 'web' ? 17 : 15,
