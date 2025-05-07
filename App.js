@@ -42,7 +42,7 @@ const App = () => {
   // The API key below is exposed in client-side code.
   // This is highly insecure for production apps.
   // Consider moving API calls to a backend server.
-  
+
   // --- END SECURITY WARNING ---
 
   const RECYCLING_FACTS = [
@@ -95,7 +95,32 @@ const App = () => {
     }
   };
 
+  const clearBackendHistory = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:8003/clear', {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          // 'Content-Type': 'application/json' // Not strictly needed for an empty body POST
+        },
+        body: '' // Empty body as per curl example
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Failed to clear backend history:', response.status, errorText);
+        // Optionally, inform the user or handle differently
+      } else {
+        const result = await response.json();
+        console.log('Backend history clear response:', result);
+      }
+    } catch (error) {
+      console.error('Error clearing backend history:', error);
+    }
+  };
+
   const handleSubmit = async () => {
+    // await clearBackendHistory(); // Call clear history at the beginning
+
     const trimmedInput = inputValue.trim();
     const trimmedPostcode = postcodeValue.trim();
 
@@ -208,7 +233,10 @@ const App = () => {
 
       setShowOutput(true);
       setCurrentFactIndex((prevIndex) => (prevIndex + 1) % RECYCLING_FACTS.length);
-      fetchReuseIdeasFromGPT(currentSubmittedItemName);
+      
+      // Determine what to send to GPT for reuse ideas
+      const gptInputForItemName = submittedImageDisplayUri && data.raw_response ? data.raw_response : currentSubmittedItemName;
+      fetchReuseIdeasFromGPT(gptInputForItemName);
 
     } catch (error) {
       console.error("Error submitting to local API:", error);
@@ -235,7 +263,13 @@ const App = () => {
     setLoadingReuseIdeas(true);
     setReuseIdeas([]);
 
-    const prompt = `Give me 2 practical and two creative reuse or upcycling ideas for this item: "${itemName}". Keep them short and useful. Provide the output as a numbered list (e.g., 1. Idea one. 2. Idea two.).`;
+    const prompt = `Give me one practical and one creative reuse or upcycling ideas for this item: "${itemName}".
+     Keep them short and useful. 
+
+     Output:
+     Practical suggestion: ...
+     Creative suggestion: ...
+     `;
     console.log("Fetching reuse ideas from GPT for:", itemName);
 
     try {
@@ -301,61 +335,30 @@ const App = () => {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.appContainer}>
           <View style={styles.cardsRowContainer}>
-            {/* Main Card */}
+            {/* Main Input Card */}
             <View style={styles.mainCard}>
               <Text style={styles.headerText}>RecycleRight UK</Text>
-            <Text style={styles.factText}>Did you know? {RECYCLING_FACTS[currentFactIndex]}</Text>
+              <Text style={styles.factText}>Did you know? {RECYCLING_FACTS[currentFactIndex]}</Text>
 
-            {loading && <ActivityIndicator size="large" color={COLORS.activityIndicatorColor} style={styles.activityIndicator} />}
+              {/* Display submitted item name and image here if desired */}
+              {submittedItem && !loading && showOutput && ( // Show only after a submission that sets submittedItem
+                <View style={styles.submittedItemPreview}>
+                  {submittedImageDisplayUri && (
+                    <Image
+                      source={{ uri: submittedImageDisplayUri }}
+                      style={styles.previewImage}
+                      resizeMode="contain"
+                    />
+                  )}
+                  <Text style={styles.previewItemName}>{submittedItem}</Text>
+                </View>
+              )}
+              
+              {loading && <ActivityIndicator size="large" color={COLORS.activityIndicatorColor} style={styles.activityIndicator} />}
+              
+              <View style={styles.spacer} /> {/* Pushes inputs to bottom */}
 
-            {showOutput && !loading && (
-              <View style={styles.outputContainer}>
-                {submittedImageDisplayUri && (
-                  <Image
-                    source={{ uri: submittedImageDisplayUri }}
-                    style={styles.uploadedImage}
-                    resizeMode="cover"
-                  />
-                )}
-                <Text style={styles.outputItemName}>{submittedItem}</Text>
-                
-                {/* Displaying Recyclability Status based on API */}
-                <Text style={[
-                  styles.outputStatus,
-                  { color: isRecyclable === true ? COLORS.recyclable : isRecyclable === false ? COLORS.notRecyclable : COLORS.secondaryText }
-                ]}>
-                  {isRecyclable === true ? "YES - Recyclable!" : isRecyclable === false ? "NO - Not Recyclable" : (apiRawResponse ? "Check Details Below" : "Status Unknown")}
-                </Text>
-
-                {/* Displaying Raw Response from API */}
-                {apiRawResponse && (
-                  <View>
-                    <Text style={styles.apiResponseHeader}>Recycling Instructions:</Text>
-                    <Text style={styles.apiResponseText}>{apiRawResponse}</Text>
-                  </View>
-                )}
-
-                {/* Displaying Reason from API if available */}
-                {apiReason && (
-                  <View style={{marginTop: 10}}>
-                    <Text style={styles.apiResponseHeader}>Note:</Text>
-                    <Text style={styles.apiResponseText}>{apiReason}</Text>
-                  </View>
-                )}
-                
-                <Text style={styles.outputCouncilInfo}>{submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"}</Text>
-                
-                {submittedPostcode && (
-                  <TouchableOpacity onPress={handleCouncilGuideLink} style={styles.councilGuideButton}>
-                    <Text style={styles.councilGuideButtonText}>See what {submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"} accepts</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-
-            <View style={styles.spacer} />
-
-            {/* Postcode Input Field */}
+              {/* Postcode Input Field */}
           <TextInput
             style={styles.postcodeTextInput}
             placeholder="Enter your postcode (e.g., SW1A 1AA)"
@@ -389,11 +392,50 @@ const App = () => {
               </TouchableOpacity>
             </View>
             {/* End of Main Card inputs */}
-            </View> 
-            {/* End of Main Card View */}
+            </View>
+            {/* End of Main Input Card View */}
 
-            {/* Reuse Ideas Card - Conditionally rendered to the side on web, stacked on mobile */}
-            {showOutput && submittedItem && (
+            {/* Recycling Details Card - New Card */}
+            {showOutput && !loading && (
+              <View style={styles.detailsCard}>
+                <Text style={styles.detailsCardTitle}>Recycling Details</Text>
+                {/* Displaying Recyclability Status based on API */}
+                <Text style={[
+                  styles.outputStatus,
+                  { color: isRecyclable === true ? COLORS.recyclable : isRecyclable === false ? COLORS.notRecyclable : COLORS.secondaryText }
+                ]}>
+                  {isRecyclable === true ? "YES - Recyclable!" : isRecyclable === false ? "NO - Not Recyclable" : (apiRawResponse ? "Check Details Below" : "Status Unknown")}
+                </Text>
+
+                {/* Displaying Raw Response from API */}
+                {apiRawResponse && (
+                  <View style={{marginBottom:10}}>
+                    <Text style={styles.apiResponseHeader}>Recycling Instructions:</Text>
+                    <Text style={styles.apiResponseText}>{apiRawResponse}</Text>
+                  </View>
+                )}
+
+                {/* Displaying Reason from API if available */}
+                {apiReason && (
+                  <View style={{marginBottom:10}}>
+                    <Text style={styles.apiResponseHeader}>Note:</Text>
+                    <Text style={styles.apiResponseText}>{apiReason}</Text>
+                  </View>
+                )}
+                
+                <Text style={styles.outputCouncilInfo}>{submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"}</Text>
+                
+                {submittedPostcode && (
+                  <TouchableOpacity onPress={handleCouncilGuideLink} style={styles.councilGuideButton}>
+                    <Text style={styles.councilGuideButtonText}>See what {submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"} accepts</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+            {/* End of Recycling Details Card */}
+
+            {/* Reuse Ideas Card - Conditionally rendered */}
+            {showOutput && !loading && submittedItem && ( // Ensure it only shows when there's an item and output is ready
               <View style={styles.reuseCardContainer}>
                 <Text style={styles.reuseCardTitle}>💡 Reuse Ideas for {submittedItem}</Text>
                 {loadingReuseIdeas && <ActivityIndicator size="small" color={COLORS.activityIndicatorColor} style={{ marginVertical: 10 }} />}
@@ -440,14 +482,15 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: Platform.OS === 'web' ? 1000 : 500, // Max width for the row of cards on web
   },
-  mainCard: { // Styles for the main card, previously 'card'
+  mainCard: { // Styles for the main input card
     backgroundColor: COLORS.cardBackground,
     borderRadius: 20,
     padding: 20,
-    width: Platform.OS === 'web' ? '58%' : '90%', // Adjust width for side-by-side
-    maxWidth: Platform.OS === 'web' ? 500 : 500, // Max width for main card
-    marginRight: Platform.OS === 'web' ? '2%' : 0, // Margin between cards on web
-    marginBottom: Platform.OS === 'web' ? 0 : 20, // Margin below on mobile
+    width: Platform.OS === 'web' ? '35%' : '90%', // Adjust width for 3 columns
+    maxWidth: Platform.OS === 'web' ? 350 : 500, 
+    marginRight: Platform.OS === 'web' ? '2%' : 0, 
+    marginBottom: Platform.OS === 'web' ? 0 : 20, 
+    minHeight: Platform.OS === 'web' ? 450 : 'auto', // Ensure it has some height
     shadowColor: COLORS.shadowColor,
     shadowOffset: { width: 0, height: 6 }, // Adjusted shadow
     shadowOpacity: Platform.OS === 'web' ? 0.3 : 0.6, // Stronger shadow for depth
@@ -473,32 +516,69 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     fontStyle: 'italic',
   },
+  submittedItemPreview: { // Styles for the preview in the main card
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  previewImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderColor: COLORS.borderColor,
+    borderWidth: 1,
+  },
+  previewItemName: {
+    fontSize: Platform.OS === 'web' ? 16 : 14,
+    color: COLORS.primaryText,
+    fontWeight: '600',
+  },
   activityIndicator: {
     marginVertical: 20, // Give some space when loading
   },
-  outputContainer: {
-    marginBottom: 20,
-    padding: 15,
-    backgroundColor: COLORS.outputBackground, // Semi-transparent
-    borderRadius: 15, // More rounded
+  // outputContainer is effectively replaced by detailsCard styles
+  detailsCard: { // Styles for the new Recycling Details Card
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 20,
+    padding: 20,
+    width: Platform.OS === 'web' ? '32%' : '90%', // Adjust width
+    maxWidth: Platform.OS === 'web' ? 350 : 500,
+    marginRight: Platform.OS === 'web' ? '2%' : 0,
+    marginBottom: Platform.OS === 'web' ? 0 : 20,
+    minHeight: Platform.OS === 'web' ? 450 : 'auto',
+    shadowColor: COLORS.shadowColor,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: Platform.OS === 'web' ? 0.3 : 0.6,
+    shadowRadius: 10,
+    elevation: 8,
     borderWidth: 1,
     borderColor: COLORS.borderColor,
+    display: 'flex',
+    flexDirection: 'column',
   },
-  uploadedImage: { // Style for the uploaded image in output
-    width: '100%',
-    height: 200,
-    borderRadius: 10,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: COLORS.borderColor,
-  },
-  outputItemName: {
+  detailsCardTitle: {
     fontSize: Platform.OS === 'web' ? 20 : 18,
     fontWeight: 'bold',
-    color: COLORS.primaryText, // Light text
-    marginBottom: 8,
+    color: COLORS.accentGreen,
+    textAlign: 'center',
+    marginBottom: 15,
   },
-  outputStatus: {
+  uploadedImage: { // Style for the uploaded image (can be reused if needed in details card, but currently in main)
+    width: '100%',
+    height: 150, // Adjusted for preview
+    borderRadius: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: COLORS.borderColor,
+  },
+  outputItemName: { // For item name in details card if needed, or reuse for submittedItem in main card
+    fontSize: Platform.OS === 'web' ? 20 : 18,
+    fontWeight: 'bold',
+    color: COLORS.primaryText,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  outputStatus: { // For status in details card
     fontSize: Platform.OS === 'web' ? 22 : 20,
     fontWeight: 'bold',
     marginBottom: 8,
@@ -599,13 +679,14 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   // Styles for Reuse Ideas Card
-  reuseCardContainer: { // Renamed from reuseCard, and using common card styles + specific ones
+  reuseCardContainer: { 
     backgroundColor: COLORS.cardBackground,
     borderRadius: 20,
     padding: 20,
-    width: Platform.OS === 'web' ? '38%' : '90%', // Adjust width for side-by-side
-    maxWidth: Platform.OS === 'web' ? 400 : 500,
-    marginTop: Platform.OS === 'web' ? 0 : 20, // No top margin if side-by-side on web
+    width: Platform.OS === 'web' ? '32%' : '90%', // Adjust width for 3 columns
+    maxWidth: Platform.OS === 'web' ? 350 : 500,
+    marginTop: Platform.OS === 'web' ? 0 : 20, 
+    minHeight: Platform.OS === 'web' ? 450 : 'auto', // Ensure consistent height with other cards in row
     shadowColor: COLORS.shadowColor,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: Platform.OS === 'web' ? 0.3 : 0.6,
