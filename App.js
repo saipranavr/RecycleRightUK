@@ -35,6 +35,8 @@ const App = () => {
   const [currentFactIndex, setCurrentFactIndex] = useState(0);
   const [reuseIdeas, setReuseIdeas] = useState([]);
   const [loadingReuseIdeas, setLoadingReuseIdeas] = useState(false);
+  const [apiRawResponse, setApiRawResponse] = useState(''); // For the new API's raw_response
+  const [apiReason, setApiReason] = useState(''); // For the new API's reason
 
   // --- IMPORTANT SECURITY WARNING ---
   // The API key below is exposed in client-side code.
@@ -138,48 +140,89 @@ const App = () => {
     setInputValue('');
     // Keep postcodeValue in the input if the user wants to reuse it, or clear it:
     // setPostcodeValue(''); // Uncomment to clear postcode input after each submission
-    setStagedImageUri(null);
+    setStagedImageUri(null); // Clear staged image after it's been included in submission logic
 
-    try {
-      // Simulate API call
-      console.log("Submitting: Item Text:", trimmedInput, "Postcode:", trimmedPostcode, "Image URI:", stagedImageUri);
-      const dummyApiResponse = Math.random() > 0.5; // Dummy YES/NO
-      // Example:
-      // const response = await fetch('https://your-api.com/check', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ item: trimmedInput }),
-      // });
-      // const data = await response.json();
-      // setIsRecyclable(data.recyclable);
+    const formData = new FormData();
+    formData.append('query', trimmedInput || "how to recycle this"); // Use input or default query
+    formData.append('postcode', trimmedPostcode);
 
-      setTimeout(() => {
-        setIsRecyclable(dummyApiResponse);
+    if (stagedImageUri) {
+      try {
+        const imageResponse = await fetch(stagedImageUri);
+        const blob = await imageResponse.blob(); // Get the blob data
+        
+        const fileName = "image.jpg"; // Keep a static filename for simplicity with FastAPI
+
+        console.log(`Appending image blob: name='${fileName}', type='${blob.type}' (blob's actual type)`);
+        
+        // Append the blob directly. The third argument (filename) is crucial for FastAPI to recognize it as a file.
+        formData.append('image', blob, fileName);
+
+      } catch (e) {
+        console.error("Error fetching or processing image blob:", e);
+        setApiRawResponse('');
+        setApiReason(`Error processing image: ${e.message}`);
+        setIsRecyclable(null);
         setShowOutput(true);
         setLoading(false);
-        setCurrentFactIndex((prevIndex) => (prevIndex + 1) % RECYCLING_FACTS.length);
-        fetchReuseIdeasFromGPT(currentSubmittedItemName); // Call the new GPT function
-      }, 800); // Simulate network delay
+        return;
+      }
+    }
+
+    try {
+      // Check what FormData contains before sending (for debugging, not for production)
+      // This kind of inspection is tricky with FormData directly in JS.
+      // We rely on the console.log below to confirm parts.
+      console.log("Submitting to local API. Query:", formData.get('query'), "Postcode:", formData.get('postcode'), "Image field present:", !!formData.get('image'));
+
+      const response = await fetch('http://127.0.0.1:8003/analyze/image', {
+        method: 'POST',
+        body: formData,
+        // headers: { 'Content-Type': 'multipart/form-data' }, // Usually not needed and can cause issues
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Local API Error Response Text:", errorText);
+        let errorJson = {};
+        try {
+            errorJson = JSON.parse(errorText);
+        } catch (e) { /* ignore if not json */ }
+        throw new Error(`Local API Error: ${response.status} - ${errorJson.detail || errorText}`);
+      }
+
+      const data = await response.json();
+      console.log("Local API Response:", data);
+
+      // Update state based on API response
+      // How to interpret data.recyclable === null? For now, treat as unknown.
+      if (data.recyclable === true) {
+        setIsRecyclable(true);
+      } else if (data.recyclable === false) {
+        setIsRecyclable(false);
+      } else {
+        setIsRecyclable(null); // Or some other state to indicate "Check details"
+      }
+      setApiRawResponse(data.raw_response || '');
+      setApiReason(data.reason || '');
+
+      setShowOutput(true);
+      setCurrentFactIndex((prevIndex) => (prevIndex + 1) % RECYCLING_FACTS.length);
+      fetchReuseIdeasFromGPT(currentSubmittedItemName);
+
     } catch (error) {
-      console.error("API error:", error);
-      setIsRecyclable(null);
-      setShowOutput(false);
+      console.error("Error submitting to local API:", error);
+      setApiRawResponse('');
+      setApiReason(`Error: ${error.message}`);
+      setIsRecyclable(null); // Reset recyclability status on error
+      setShowOutput(true); // Still show output card to display the error
+    } finally {
       setLoading(false);
     }
   };
 
-  const outputData = {
-    itemName: submittedItem,
-    status: isRecyclable === true ? "YES - Recyclable!" :
-            isRecyclable === false ? "NO - Not Recyclable" : "Unknown",
-    statusColor: isRecyclable === true ? COLORS.recyclable :
-                 isRecyclable === false ? COLORS.notRecyclable : COLORS.secondaryText,
-    binInfo: isRecyclable ? "Put in: Green Recycling Bin" : "Put in: General Waste",
-    tip: isRecyclable
-      ? "Make sure it's empty, rinsed, and the cap is on!"
-      : "Check for alternative recycling points near you.",
-    councilName: submittedPostcode ? `Council for ${submittedPostcode}` : "My Council", // Default to "My Council"
-  };
+  // outputData will now be constructed more directly in the JSX
+  // or we can adjust it to use apiRawResponse and apiReason
 
   const fetchReuseIdeasFromGPT = async (itemName) => {
     if (!itemName || itemName.trim() === "" || itemName.toLowerCase() === "uploaded image") {
@@ -240,8 +283,10 @@ const App = () => {
 
 
   const handleCouncilGuideLink = () => {
-    console.log(`Clicked council guide link for: ${outputData.councilName}`);
-    const dummyCouncilUrl = `https://www.google.com/search?q=recycling+guide+${outputData.councilName.replace(/\s/g, '+')}`;
+    // outputData was removed, use submittedPostcode directly or from state if needed for council name
+    const councilName = submittedPostcode ? `Council for ${submittedPostcode}` : "My Council";
+    console.log(`Clicked council guide link for: ${councilName}`);
+    const dummyCouncilUrl = `https://www.google.com/search?q=recycling+guide+${councilName.replace(/\s/g, '+')}`;
     Linking.canOpenURL(dummyCouncilUrl).then(supported => {
       if (supported) {
         Linking.openURL(dummyCouncilUrl);
@@ -272,16 +317,37 @@ const App = () => {
                     resizeMode="cover"
                   />
                 )}
-                <Text style={styles.outputItemName}>{outputData.itemName}</Text>
-                <Text style={[styles.outputStatus, { color: outputData.statusColor }]}>
-                  {outputData.status}
+                <Text style={styles.outputItemName}>{submittedItem}</Text>
+                
+                {/* Displaying Recyclability Status based on API */}
+                <Text style={[
+                  styles.outputStatus,
+                  { color: isRecyclable === true ? COLORS.recyclable : isRecyclable === false ? COLORS.notRecyclable : COLORS.secondaryText }
+                ]}>
+                  {isRecyclable === true ? "YES - Recyclable!" : isRecyclable === false ? "NO - Not Recyclable" : (apiRawResponse ? "Check Details Below" : "Status Unknown")}
                 </Text>
-                <Text style={styles.outputBinInfo}>{outputData.binInfo}</Text>
-                <Text style={styles.outputCouncilInfo}>{outputData.councilName}</Text>
-                <Text style={styles.outputTip}>Tip: {outputData.tip}</Text>
+
+                {/* Displaying Raw Response from API */}
+                {apiRawResponse && (
+                  <View>
+                    <Text style={styles.apiResponseHeader}>Recycling Instructions:</Text>
+                    <Text style={styles.apiResponseText}>{apiRawResponse}</Text>
+                  </View>
+                )}
+
+                {/* Displaying Reason from API if available */}
+                {apiReason && (
+                  <View style={{marginTop: 10}}>
+                    <Text style={styles.apiResponseHeader}>Note:</Text>
+                    <Text style={styles.apiResponseText}>{apiReason}</Text>
+                  </View>
+                )}
+                
+                <Text style={styles.outputCouncilInfo}>{submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"}</Text>
+                
                 {submittedPostcode && (
                   <TouchableOpacity onPress={handleCouncilGuideLink} style={styles.councilGuideButton}>
-                    <Text style={styles.councilGuideButtonText}>See what {outputData.councilName} accepts</Text>
+                    <Text style={styles.councilGuideButtonText}>See what {submittedPostcode ? `Council for ${submittedPostcode}` : "My Council"} accepts</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -329,7 +395,7 @@ const App = () => {
             {/* Reuse Ideas Card - Conditionally rendered to the side on web, stacked on mobile */}
             {showOutput && submittedItem && (
               <View style={styles.reuseCardContainer}>
-                <Text style={styles.reuseCardTitle}>💡 Reuse Ideas for {outputData.itemName}</Text>
+                <Text style={styles.reuseCardTitle}>💡 Reuse Ideas for {submittedItem}</Text>
                 {loadingReuseIdeas && <ActivityIndicator size="small" color={COLORS.activityIndicatorColor} style={{ marginVertical: 10 }} />}
                 {!loadingReuseIdeas && reuseIdeas.length > 0 && (
                   reuseIdeas.map((idea, index) => (
@@ -439,15 +505,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     // Color is set dynamically
   },
-  outputBinInfo: {
+  outputBinInfo: { // This style might be deprecated if bin info is in raw_response
     fontSize: Platform.OS === 'web' ? 18 : 16,
-    color: COLORS.secondaryText, // Dimmer light text
+    color: COLORS.secondaryText,
     marginBottom: 5,
   },
-  outputTip: {
+  outputTip: { // This style might be deprecated if tip is in raw_response
     fontSize: Platform.OS === 'web' ? 16 : 14,
-    color: COLORS.secondaryText, // Dimmer light text
+    color: COLORS.secondaryText,
     fontStyle: 'italic',
+  },
+  apiResponseHeader: {
+    fontSize: Platform.OS === 'web' ? 16 : 15,
+    fontWeight: 'bold',
+    color: COLORS.primaryText,
+    marginTop: 10,
+    marginBottom: 5,
+  },
+  apiResponseText: {
+    fontSize: Platform.OS === 'web' ? 14 : 13,
+    color: COLORS.secondaryText,
+    lineHeight: 20,
   },
   outputCouncilInfo: {
     fontSize: Platform.OS === 'web' ? 17 : 15,
